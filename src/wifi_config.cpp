@@ -10,15 +10,15 @@ const char* wifi_status(wl_status_t status)
         case WL_NO_SSID_AVAIL:
             return "NO SSID";
         case WL_SCAN_COMPLETED:
-            return "SCAN COMPLETED";
+            return "SCANNED";
         case WL_CONNECTED:
-            return "CONNECTED";
+            return "CONN";
         case WL_CONNECT_FAILED:
-            return "CONNECT FAILED";
+            return "FAILED";
         case WL_CONNECTION_LOST:
-            return "CONNECTION LOST";
+            return "LOST";
         case WL_DISCONNECTED:
-            return "DISCONNECTED";
+            return "DISCONN";
         default:
             return "UNKNOWN";
     }

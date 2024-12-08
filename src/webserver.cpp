@@ -123,6 +123,8 @@ const char index_html[] PROGMEM = R"rawliteral(
             </form>
         </div>
         <div class="card">
+            <h2>CPU Temperature</h2>
+            <p class="state"><span id="cputemp-state">%STATE%</span> &deg;C</p>
             <h2>Temperature</h2>
             <p class="state"><span id="temp-state">%STATE%</span> &deg;C</p>
             <h2>Humidity</h2>
@@ -132,6 +134,17 @@ const char index_html[] PROGMEM = R"rawliteral(
             <h2>CO2 ppm</h2>
             <p class="state"><span id="co2_ppm-state">%STATE%</span>ppm</p>
         </div>
+        <div class="card">
+            <h2>LED period</h2>
+            <p class="state">Period: <span id="period-state">%STATE%</span></p>
+            <p><input id="period" type="range" class="slider" min="100" max="10000" step="100" oninput="inputDelay(this)"
+                    onchange="updateDelay(this)"></p>
+        </div>
+        <div class="card">
+            <h2>Connection</h2>
+            <p class="state"><span id="rssi-state">%STATE%</span></p>
+        </div>
+        
     </div>
     <script>
         function sub(obj) {
@@ -199,6 +212,9 @@ const char index_html[] PROGMEM = R"rawliteral(
             myObj = JSON.parse(event.data);
             console.log(myObj);
 
+            if (myObj.hasOwnProperty("cputemp"))
+                elemId('cputemp-state').innerText = myObj["cputemp"];
+
             if (myObj.hasOwnProperty("temp"))
                 elemId('temp-state').innerText = myObj["temp"];
 
@@ -208,6 +224,29 @@ const char index_html[] PROGMEM = R"rawliteral(
             if (myObj.hasOwnProperty("co2_ppm"))
                 elemId('co2_ppm-state').innerText = myObj["co2_ppm"];
 
+            if (myObj.hasOwnProperty("period") && (ignores['period'] != true)) {
+                elemId('period').value = myObj["period"];
+                elemId('period-state').innerText = myObj["period"];
+            }
+
+            if (myObj.hasOwnProperty("rssi"))
+                elemId('rssi-state').innerText = myObj["rssi"];
+
+        }
+        function inputDelay(elem) {
+            ignores[elem.id] = true;
+            let sliderValue = elem.value;
+            if (sliderValue >= 100 && sliderValue < 1000)
+                elem.step = 10
+            else if (sliderValue > 1000 && sliderValue < 10000)
+                elem.step = 100
+            elemId('period-state').innerText = sliderValue;
+        }
+        function updateDelay(elem) {
+            let sliderValue = elem.value;
+            elemId('period-state').innerText = sliderValue;
+            websocket.send('\033KB delay ' + sliderValue + '\033');
+            ignores[elem.id] = false;
         }
         function onLoad(event) {
             initWebSocket();
@@ -245,7 +284,7 @@ static void handleWebSocketMessage(void* arg, uint8_t* data, size_t len) {
     if (info->final && info->index == 0 && info->len == len &&
         info->opcode == WS_TEXT) {
         data[len] = 0;
-        Serial.write(data, len);
+        process_string(Serial, (const char*)data);
     }
 }
 
@@ -365,10 +404,9 @@ void server_handle_task(void* param) {
             }
             if (len) {
                 if (textfile) {
-                    // for (size_t i = 0; i < len; i++) {
-                    //     process_char(Serial, data[i]);
-                    // }
-                    Serial.write(data, len);
+                    for (size_t i = 0; i < len; i++) {
+                        process_char(Serial, data[i]);
+                    }
                 } else {
                     if (Update.write(data, len) != len) {
                         Update.printError(Serial);
@@ -377,7 +415,7 @@ void server_handle_task(void* param) {
             }
             if (final) {
                 if (textfile) {
-                    // process_char(Serial, '\033');
+                    process_char(Serial, '\033');
                 } else {
                     if (Update.end(true)) {
                     } else {
@@ -405,7 +443,7 @@ void server_handle_task(void* param) {
         JSONVar json_report;
         bool new_report = false;
 
-        while (xQueueReceive(websocket_report_queue, &recv_report, 500) == pdTRUE) {
+        while (xQueueReceive(websocket_report_queue, &recv_report, 0) == pdTRUE) {
             json_report[recv_report->key] = recv_report->value;
             delete recv_report;
             new_report = true;
@@ -413,11 +451,12 @@ void server_handle_task(void* param) {
         
         if (new_report) {
             // Serial.println(JSON.stringify(json_report));
+            json_report["period"] = String(rgb_period);
             notifyClients(JSON.stringify(json_report));
         }
 
         ws.cleanupClients();
-        vTaskDelay(100);
+        vTaskDelay(500);
     }
     server.end();
     vTaskDelete(NULL);

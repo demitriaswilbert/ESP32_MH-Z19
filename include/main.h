@@ -53,7 +53,7 @@ public:
     json_pair_t(String key, String value) : key(key), value(value) {}
 };
 
-extern SemaphoreHandle_t rgb_period_mutex;
+extern QueueHandle_t rgb_period_queue;
 extern float rgb_period;
 
 extern uint8_t base_val;

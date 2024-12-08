@@ -55,22 +55,15 @@ static std::vector<command_t> commands = {
          tmp_delay = tmp_delay > 180000 ? 180000 : tmp_delay;
          tmp_delay = tmp_delay < 20 ? 20 : tmp_delay;
 
-         if (rgb_period_mutex == NULL) return;
-         if (xSemaphoreTake(rgb_period_mutex, 0xfffffffful) == pdTRUE) {
-             rgb_period = tmp_delay;
-             xSemaphoreGive(rgb_period_mutex);
-         }
+         if (rgb_period_queue == NULL) return;
+         xQueueSend(rgb_period_queue, &tmp_delay, 100);
 
-         st.printf("Delay: %f ms\n", tmp_delay);
+        //  st.printf("Delay: %f ms\n", tmp_delay);
      }},
     {"KB delay", 0,
      [](String in_str, Stream& st) {
          float tmp_delay;
-         if (rgb_period_mutex == NULL) return;
-         if (xSemaphoreTake(rgb_period_mutex, 0xfffffffful) == pdTRUE) {
-             tmp_delay = rgb_period;
-             xSemaphoreGive(rgb_period_mutex);
-         }
+         tmp_delay = rgb_period;
          st.printf("Delay: %f ms\n", tmp_delay);
      }},
     {"KB baseval ", 10,
@@ -80,8 +73,8 @@ static std::vector<command_t> commands = {
          tmp_baseval = tmp_baseval > 255 ? 255 : tmp_baseval;
          tmp_baseval = tmp_baseval < 0 ? 0 : tmp_baseval;
 
-         if (rgb_period_mutex == NULL) return;
-         if (xSemaphoreTake(rgb_period_mutex, 0xfffffffful) == pdTRUE) {
+         if (rgb_period_queue == NULL) return;
+         if (xSemaphoreTake(rgb_period_queue, 0xfffffffful) == pdTRUE) {
              base_val = tmp_baseval;
              for (int i = 0; i < 3; i++)
                  color[i] = base_val;
@@ -89,7 +82,7 @@ static std::vector<command_t> commands = {
              rgb_levels = 768 - (3 * base_val);
              if (rgb_levels == 0) rgb_levels = 1;
              col_index = 0;
-             xSemaphoreGive(rgb_period_mutex);
+             xSemaphoreGive(rgb_period_queue);
          }
 
          st.printf("Key baseval: %d ms\n", tmp_baseval);
@@ -104,10 +97,10 @@ static std::vector<command_t> commands = {
     {"KB baseval", 0,
      [](String in_str, Stream& st) {
          int tmp_baseval;
-         if (rgb_period_mutex == NULL) return;
-         if (xSemaphoreTake(rgb_period_mutex, 0xfffffffful) == pdTRUE) {
+         if (rgb_period_queue == NULL) return;
+         if (xSemaphoreTake(rgb_period_queue, 0xfffffffful) == pdTRUE) {
              tmp_baseval = base_val;
-             xSemaphoreGive(rgb_period_mutex);
+             xSemaphoreGive(rgb_period_queue);
          }
          st.printf("baseval: %d ms\n", tmp_baseval);
      }},
@@ -151,6 +144,7 @@ void process_char(Stream& st, char c) {
                 return;
             }
         }
+        st.printf("Received: %lu bytes\n", rx_str.length());
         rx_str = String();
     } else {
         rx_str += (char)c;

@@ -7,6 +7,7 @@
 #include <Fonts/GFXFF/gfxfont.h>
 #include <TFT_eSPI.h>
 #include <ESPmDNS.h>
+#include "driver/temp_sensor.h"
 
 #define HOSTNAME "dwsensor"
 
@@ -97,17 +98,21 @@ static void mhz19_callback()
     if (directRead(4))
     { // if rising edge
         if (fall_time > 0)
-        { // valid sample
+        { // received sample
             // calculate on time and off time (duty cycle)
-            pulse_data.hightime = fall_time - rise_time;
-            pulse_data.lowtime = time - fall_time;
+            int64_t hightime = fall_time - rise_time;
+            int64_t lowtime = time - fall_time;
+
+            pulse_data.hightime = hightime < 2000? 2000 : hightime;
+            pulse_data.lowtime = lowtime < 2000? 2000 : lowtime;
+
             // pulse to queue
             xQueueSendFromISR(pulse_data_q, &pulse_data, NULL);
         }
         rise_time = time;
     }
     else
-    { // if falling edge
+    { // get falling edge time
         fall_time = time;
     }
 }
@@ -168,7 +173,7 @@ void rmt_write_to_led(uint8_t red, uint8_t green, uint8_t blue)
     rmtWrite(rmt_send, led_data, 24);
 }
 
-SemaphoreHandle_t rgb_period_mutex = NULL;
+QueueHandle_t rgb_period_queue = NULL;
 float rgb_period = 3000.0;
 uint8_t base_val = 0;
 uint8_t color[] = {base_val, base_val, base_val}; // RGB value
@@ -181,8 +186,8 @@ void rgb_task(void* param)
     float a = 0;
     int delay_by = 0;
 
-    if (rgb_period_mutex == NULL)
-        rgb_period_mutex = xSemaphoreCreateMutex();
+    if (rgb_period_queue == NULL)
+        rgb_period_queue = xQueueCreate(1, sizeof(float));
 
     if ((rmt_send = rmtInit(48, RMT_TX_MODE, RMT_MEM_64)) == NULL)
         Serial.println("init sender failed\n");
@@ -193,8 +198,8 @@ void rgb_task(void* param)
     static uint8_t private_color[3]; // RGB value
     while (true)
     {
-        if (xSemaphoreTake(rgb_period_mutex, 0xfffffffful) == pdTRUE)
-        {
+        xQueueReceive(rgb_period_queue, &rgb_period, 0);
+        while (a < 100.f/6) {
             if (color[col_index] < 255)
             {
                 color[col_index]++;
@@ -205,18 +210,11 @@ void rgb_task(void* param)
                 col_index = (col_index + 1) % 3;
 
             a += rgb_period / rgb_levels;
-            delay_by = a;
-            a -= delay_by;
-            memcpy(private_color, color, sizeof(private_color));
-            xSemaphoreGive(rgb_period_mutex);
-        };
-
-        if (delay_by > 0)
-        {
-            rmt_write_to_led(private_color[1], private_color[0],
-                             private_color[2]);
-            vTaskDelay(delay_by);
         }
+        delay_by = a;
+        a -= delay_by;
+        rmt_write_to_led(color[1], color[0], color[2]);
+        vTaskDelay(delay_by);
     }
     vTaskDelete(NULL);
 }
@@ -432,7 +430,7 @@ void arduino_wifi_event_cb(arduino_event_t* event_data)
         Serial.printf("[WiFi]: STA Got %s IP: %s \n",
                       event->ip_changed ? "New" : "Same",
                       tmp.toString().c_str());
-        
+
         print_wifi_config(Serial);
 
     }
@@ -475,7 +473,7 @@ void wifi_monitor_task(void* param)
     {
         static int64_t connect_timer = esp_timer_get_time();
 
-        static bool prev_button = false;
+        static bool prev_button = true;
         bool button = !!(GPIO.in & ((uint32_t)1 << 0));
         if (button && !prev_button)
         {
@@ -517,8 +515,12 @@ void print_line_to_tft(TFT_eSprite& tftsprite, String str, int line)
 void setup()
 {
 
-    Serial.begin(115200);
-    Serial.setDebugOutput(true);
+    Serial.begin(921600);
+    // Serial.setDebugOutput(true);
+
+    temp_sensor_config_t tsens = TSENS_CONFIG_DEFAULT();
+    temp_sensor_set_config(tsens);
+    temp_sensor_start();
 
     // create mhz19 and dht22 data queue
     pulse_data_q = xQueueCreate(1, sizeof(pulse_data_t));
@@ -527,12 +529,13 @@ void setup()
     wifi_switch_target = xQueueCreate(1, sizeof(size_t));
 
     // configure MH-Z19 pins and level change interrupt
-    pinMode(4, INPUT);
+    pinMode(4, INPUT_PULLUP);
     attachInterrupt(4, mhz19_callback, CHANGE);
 
     pinMode(0, INPUT_PULLUP);
 
     // start DHT22 task
+    xTaskCreate(rgb_task, "rgb_task", 4096, NULL, 1, NULL);
     xTaskCreate(dht22_poll_task, "dht22_tsk", 4096, NULL, 2, NULL);
 
     // wifi initialization
@@ -547,7 +550,7 @@ void setup()
     txt_spr.setTextColor(TFT_WHITE);
     txt_spr.setFreeFont(&FreeMonoBold12pt7b);
 
-    xTaskCreate(wifi_monitor_task, "wifi_task", 4096, NULL, tskIDLE_PRIORITY,
+    xTaskCreate(wifi_monitor_task, "wifi_task", 4096, NULL, 1,
                 NULL);
     xTaskCreate(server_handle_task, "webserver_tsk", 4096, NULL, 2, NULL);
 }
@@ -562,18 +565,21 @@ void loop()
     static int64_t wifi_display_timer = esp_timer_get_time() + 1000000;
 
     if (esp_timer_get_time() > wifi_display_timer)
-    {
+    { 
+        wifi_display_timer = esp_timer_get_time() + 1000000;
         int line = 0;
-        /** Calculate and Display CO2 ppm **/
-        const uint64_t htime = pulse_data.hightime;
-        const uint64_t total = pulse_data.lowtime + htime;
-        // see MH-Z19B datasheet, ppm = 2000 * (h - 2ms) / (h + l - 4ms)
-        double co2_ppm = 2000.0 * (htime - 2000) / (total - 4000);
+        String wifi_rssi = String(WiFi.RSSI());
 
         print_line_to_tft(txt_spr, id_passes[id_pass_idx].ssid, 0);
-        print_line_to_tft(txt_spr, wifi_status(WiFi.status()), 1);
+        print_line_to_tft(txt_spr, String(wifi_status(WiFi.status())) + " (" + wifi_rssi + ")", 1);
         print_line_to_tft(txt_spr, WiFi.localIP().toString(), 2);
         print_line_to_tft(txt_spr, HOSTNAME, 3);
+        
+        json_pair_t* tmp_report_data =
+            new json_pair_t("rssi", wifi_rssi);
+
+        if (xQueueSend(websocket_report_queue, &tmp_report_data, 100) != pdTRUE)
+            delete tmp_report_data;
     }
 
     // display CO2 ppm
@@ -598,10 +604,16 @@ void loop()
     // display DHT22 data
     if (xQueueReceive(dht22_data_q, &dht22_data, 0) == pdTRUE)
     {
-        print_line_to_tft(txt_spr, "Temp: " + String(dht22_data.temp) + " C",
+        float cpu_temp_c = NAN;
+        uint32_t tmp_cycle_start, tmp_cycle_end;
+        temp_sensor_read_celsius(&cpu_temp_c); 
+        
+        print_line_to_tft(txt_spr, "CPU : " + String(cpu_temp_c) + " C",
                           5);
-        print_line_to_tft(txt_spr, "Hum : " + String(dht22_data.humid) + " %",
+        print_line_to_tft(txt_spr, "Temp: " + String(dht22_data.temp) + " C",
                           6);
+        print_line_to_tft(txt_spr, "Hum : " + String(dht22_data.humid) + " %",
+                          7);
 
         json_pair_t* tmp_report_data =
             new json_pair_t("temp", String(dht22_data.temp));
@@ -609,6 +621,10 @@ void loop()
             delete tmp_report_data;
 
         tmp_report_data = new json_pair_t("humid", String(dht22_data.humid));
+        if (xQueueSend(websocket_report_queue, &tmp_report_data, 100) != pdTRUE)
+            delete tmp_report_data;
+
+        tmp_report_data = new json_pair_t("cputemp", String(cpu_temp_c));
         if (xQueueSend(websocket_report_queue, &tmp_report_data, 100) != pdTRUE)
             delete tmp_report_data;
 
