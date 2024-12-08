@@ -1,33 +1,43 @@
 #include "main.h"
-const char* WiFi_Status(wl_status_t status)
+const char* wifi_status(wl_status_t status)
 {
     switch (status)
     {
-        case 255:
-            return "NOSHIELD";
-        case 0:
+        case WL_NO_SHIELD:
+            return "NO SHIELD";
+        case WL_IDLE_STATUS:
             return "IDLE";
-        case 1:
-            return "NOSSID";
-        case 2:
-            return "SCANNED";
-        case 3:
-            return "CONN";
-        case 4:
-            return "CONNFAIL";
-        case 5:
-            return "CONNLOST";
-        case 6:
-            return "DISCONN";
+        case WL_NO_SSID_AVAIL:
+            return "NO SSID";
+        case WL_SCAN_COMPLETED:
+            return "SCAN COMPLETED";
+        case WL_CONNECTED:
+            return "CONNECTED";
+        case WL_CONNECT_FAILED:
+            return "CONNECT FAILED";
+        case WL_CONNECTION_LOST:
+            return "CONNECTION LOST";
+        case WL_DISCONNECTED:
+            return "DISCONNECTED";
         default:
             return "UNKNOWN";
     }
 }
 void print_wifi_config(Stream& st)
 {
-    st.printf("Connected      : %s\n"
-              " - localIP     : %s\n"
-              " - SSID        : %s\n",
-              WiFi.macAddress().c_str(), WiFi.localIP().toString().c_str(),
-              WiFi.SSID().c_str());
+    st.printf("Connected  : %s\n"
+              " - SSID    : %s\n"
+              " - localIP : %s\n"
+              " - Gateway : %s\n"
+              " - Subnet  : %s\n"
+              " - DNS 0   : %s\n"
+              " - DNS 1   : %s\n"
+              , WiFi.macAddress().c_str()
+              , WiFi.SSID().c_str()
+              , WiFi.localIP().toString().c_str()
+              , WiFi.gatewayIP().toString().c_str()
+              , WiFi.subnetMask().toString().c_str()
+              , WiFi.dnsIP(0).toString().c_str()
+              , WiFi.dnsIP(1).toString().c_str()
+    );
 }

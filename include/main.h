@@ -42,7 +42,7 @@ typedef struct
     String pass;
 } id_pass_t;
 
-const char* WiFi_Status(wl_status_t status);
+const char* wifi_status(wl_status_t status);
 void print_wifi_config(Stream& st);
 
 class json_pair_t

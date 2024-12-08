@@ -391,14 +391,14 @@ void server_handle_task(void* param) {
     ws.onEvent(onEvent);
     server.addHandler(&ws);
 
+    json_pair_t* recv_report;
+
     while (!WiFi.isConnected()) {
         vTaskDelay(1000);
-        print_wifi_config(Serial);
+        Serial.printf("[SERVER] WiFi not connected\n");
     }
-
+    Serial.printf("[SERVER] Starting server\n");
     server.begin();
-
-    json_pair_t* recv_report;
 
     while (true) {
 
