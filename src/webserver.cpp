@@ -152,31 +152,31 @@ const char index_html[] PROGMEM = R"rawliteral(
             <p class="state">
                 <span class="row-left">CPU Temp</span>
                 <span class="row-center"> : </span>
-                <span class="row-right"><span id="cputemp-state">%STATE%</span> &deg;C</span>
+                <span class="row-right"><span id="cputemp-state"></span> &deg;C</span>
             </p>
             <p class="state">
                 <span class="row-left">Air Temp</span>
                 <span class="row-center"> : </span>
-                <span class="row-right"><span id="temp-state">%STATE%</span> &deg;C</span>
+                <span class="row-right"><span id="temp-state"></span> &deg;C</span>
             </p>
             <p class="state">
                 <span class="row-left">Humidity</span>
                 <span class="row-center"> : </span>
-                <span class="row-right"><span id="humid-state">%STATE%</span> %</span>
+                <span class="row-right"><span id="humid-state"></span> %</span>
             </p>
             <p class="state">
                 <span class="row-left">CO2 Conc.</span>
                 <span class="row-center"> : </span>
-                <span class="row-right"><span id="co2_ppm-state">%STATE%</span> ppm</span>
+                <span class="row-right"><span id="co2_ppm-state"></span> ppm</span>
             </p>
         </div>
         <div class="card">
             <h2>LED period</h2>
-            <input type="button" class="button" id="led" value="%STATE%" onclick="ledbutton()">
+            <input type="button" class="button" id="led" value="" onclick="ledbutton()">
             <p class="state">
                 <span class="row-left">RGB Period</span>
                 <span class="row-center"> : </span>
-                <span class="row-right"><span id="period-state">%STATE%</span> ms</span>
+                <span class="row-right"><span id="period-state"></span> ms</span>
             </p>
             <p><input id="period" type="range" class="slider" min="100" max="10000" step="100" oninput="inputDelay(this)"
                     onchange="updateDelay(this)"></p>
@@ -186,27 +186,27 @@ const char index_html[] PROGMEM = R"rawliteral(
             <p class="state state-row">
                 <span class="row-left">RSSI</span>
                 <span class="row-center"> : </span>
-                <span class="row-right" id="rssi-state">%STATE%</span>
+                <span class="row-right" id="rssi-state"></span>
             </p>
             <p class="state state-row">
                 <span class="row-left">SSID</span> 
                 <span class="row-center"> : </span>
-                <span class="row-right" id="ssid">%STATE%</span>
+                <span class="row-right" id="ssid"></span>
             </p>
             <p class="state state-row">
                 <span class="row-left">Gateway</span> 
                 <span class="row-center"> : </span>
-                <span class="row-right" id="gw">%STATE%</span>
+                <span class="row-right" id="gw"></span>
             </p>
             <p class="state state-row">
                 <span class="row-left">Subnet Mask</span> 
                 <span class="row-center"> : </span>
-                <span class="row-right" id="sm">%STATE%</span>
+                <span class="row-right" id="sm"></span>
             </p>
             <p class="state state-row">
                 <span class="row-left">Clients</span> 
                 <span class="row-center"> : </span>
-                <span class="row-right" id="clients">%STATE%</span>
+                <span class="row-right" id="clients"></span>
             </p>
         </div>
         
@@ -420,65 +420,16 @@ static void onEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
     }
 }
 
-String processor(const String& var) {
-    if (var == "MACADDR") {
-        return WiFi.macAddress();
-    } else if (var == "SSID") {
-        return WiFi.SSID();
-    } else if (var == "RSSI") {
-        return String(WiFi.RSSI());
-    } else if (var == "TXPWR") {
-        return String(WiFi.getTxPower());
-    }
-    return String();
-}
-
-String getHTML(const char* data) {
-    String html = "";
-    char keyword[50];
-    int _start = -1;
-    for (int i = 0; index_html[i] != 0; i++) {
-        if (index_html[i] == '%') {
-            if (_start == -1)
-                _start = i + 1;
-            else {
-                html += processor(keyword);
-                _start = -1;
-                keyword[0] = 0;
-            }
-        } else if (_start != -1) {
-            keyword[i - _start] = index_html[i];
-            keyword[i - _start + 1] = 0;
-            if (!(index_html[i] >= 'A' && index_html[i] <= 'Z')) {
-                // non keyword
-                _start = -1;
-                html += (char)'%';
-                html += keyword;
-                keyword[0] = 0;
-            }
-        } else
-            html += index_html[i];
-    }
-    if (keyword[0] != 0) {
-        html += (char)'%';
-        html += keyword;
-        keyword[0] = 0;
-    }
-    return html;
-}
-
-void server_handle_task(void* param) {
-
+void server_handle_task(void* param) 
+{
+    log_d("Task %s running on core %d", "server_handle_task", xPortGetCoreID());
     static bool textfile = false;
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-        request->send(200, "text/html", getHTML(index_html));
+        // request->send(200, "text/html", getHTML(index_html));
+        request->send_P(200, "text/html", index_html);
     });
 
-    // Handle firmware file upload
-    
-    int64_t cleanup_client_tmr = esp_timer_get_time();
-    int64_t notify_client_tmr = esp_timer_get_time();
 
     server.on(
         "/update", HTTP_POST,
@@ -554,7 +505,7 @@ void server_handle_task(void* param) {
         }
 
         ws.cleanupClients();
-        vTaskDelay(500);
+        vTaskDelay(100);
     }
     server.end();
     vTaskDelete(NULL);

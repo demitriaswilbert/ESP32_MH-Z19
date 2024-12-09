@@ -144,13 +144,13 @@ void process_char(Stream& st, char c) {
      */
     if (isEnd(enable_enter, c)) {
         st.println();
+        // st.printf("Received: %lu bytes\n", rx_str.length());
         for (auto& i : commands) {
             if (process_command(rx_str, st, &i)) {
                 rx_str = String();
                 return;
             }
         }
-        st.printf("Received: %lu bytes\n", rx_str.length());
         rx_str = String();
     } else {
         rx_str += (char)c;

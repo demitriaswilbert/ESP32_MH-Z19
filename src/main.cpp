@@ -124,7 +124,7 @@ static void mhz19_callback()
  */
 void dht22_poll_task(void* param)
 {
-
+    log_i("Task %s running on core %d", "dht22_poll_task", xPortGetCoreID());
     // initialize and begin DHT object
     DHT dht(16, DHT22);
     dht.begin();
@@ -183,6 +183,7 @@ bool rgb_led_on = false;
 
 void rgb_task(void* param)
 {
+    log_i("Task %s running on core %d", "rgb_task", xPortGetCoreID());
     float a = 0;
     int delay_by = 0;
 
@@ -485,6 +486,7 @@ void arduino_wifi_event_cb(arduino_event_t* event_data)
  */
 void wifi_monitor_task(void* param)
 {
+    log_i("Task %s running on core %d", "wifi_monitor_task", xPortGetCoreID());
     WiFi.onEvent(arduino_wifi_event_cb);
 
     WiFi.begin(id_passes[id_pass_idx].ssid.c_str(),
@@ -505,7 +507,7 @@ void wifi_monitor_task(void* param)
 
         if (WiFi.isConnected())
             connect_timer = esp_timer_get_time();
-        else if (esp_timer_get_time() - connect_timer > 5000000)
+        else if (esp_timer_get_time() - connect_timer > 20000000)
         {
             connect_timer = esp_timer_get_time();
             Serial.printf("[WiFi monitor] Reconnecting\n");
@@ -574,11 +576,22 @@ void setup()
     pinMode(0, INPUT_PULLUP);
     pinMode(35, OUTPUT);
 
+    vTaskDelay(200);
+
     // start DHT22 task
-    xTaskCreate(rgb_task, "rgb_task", 4096, NULL, 1, NULL);
-    xTaskCreate(dht22_poll_task, "dht22_tsk", 4096, NULL, 2, NULL);
+    xTaskCreatePinnedToCore(rgb_task, "rgb_task", 4096, NULL, 1, NULL, 1);
+    vTaskDelay(200);
+    xTaskCreatePinnedToCore(dht22_poll_task, "dht22_tsk", 4096, NULL, 3, NULL, 1);
 
     // wifi initialization
+
+    vTaskDelay(200);
+    xTaskCreatePinnedToCore(wifi_monitor_task, "wifi_task", 4096, NULL, tskIDLE_PRIORITY, NULL, 0);
+    vTaskDelay(200);
+    xTaskCreatePinnedToCore(server_handle_task, "webserver_tsk", 4096, NULL, 2, NULL, 1);
+    vTaskDelay(200);
+    
+    log_d("Task %s running on core %d", "main", xPortGetCoreID());
 
     // initialize tft lcd, fill with black
     tft.begin();
@@ -589,10 +602,6 @@ void setup()
     txt_spr.createSprite(240, 25);
     txt_spr.setTextColor(TFT_WHITE);
     txt_spr.setFreeFont(&FreeMonoBold12pt7b);
-
-    xTaskCreate(wifi_monitor_task, "wifi_task", 4096, NULL, 1,
-                NULL);
-    xTaskCreate(server_handle_task, "webserver_tsk", 4096, NULL, 2, NULL);
 }
 
 
