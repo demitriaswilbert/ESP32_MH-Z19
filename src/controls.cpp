@@ -60,6 +60,12 @@ static std::vector<command_t> commands = {
 
         //  st.printf("Delay: %f ms\n", tmp_delay);
      }},
+    {"KB toggle", 0,
+     [](String in_str, Stream& st) {
+         float tmp_delay = 30;
+         if (rgb_period_queue == NULL) return;
+         xQueueSend(rgb_period_queue, &tmp_delay, 100);
+     }},
     {"KB delay", 0,
      [](String in_str, Stream& st) {
          float tmp_delay;

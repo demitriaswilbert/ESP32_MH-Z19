@@ -69,14 +69,14 @@ QueueHandle_t dht22_data_q;
 QueueHandle_t websocket_report_queue = NULL;
 QueueHandle_t wifi_switch_target = NULL;
 
-const id_pass_t id_passes[] = {
+std::vector<id_pass_t>id_passes = {
     {"Tapanuli 45 EXT", "4567379000"},
     {"Tapanuli 45", "4567379000"},
     {"DW iPhone", "4567379000"},
     {"MyRepublic SST", "4567379sst"},
 };
-const size_t id_passes_size = sizeof(id_passes) / sizeof(id_passes[0]);
 int id_pass_idx = 0;
+
 
 /**
  * @brief level change interrupt handler for measuring MH-Z19 pulse
@@ -179,10 +179,10 @@ uint8_t base_val = 0;
 uint8_t color[] = {base_val, base_val, base_val}; // RGB value
 int col_index = 0;
 int rgb_levels = 768;
+bool rgb_led_on = false;
 
 void rgb_task(void* param)
 {
-
     float a = 0;
     int delay_by = 0;
 
@@ -196,25 +196,46 @@ void rgb_task(void* param)
     Serial.printf("real tick set to: %fns\n", realTick);
 
     static uint8_t private_color[3]; // RGB value
+    static float rgb_period_tmp;
+
+    if (!rgb_led_on)
+        rmt_write_to_led(0, 0, 0);
+
     while (true)
     {
-        xQueueReceive(rgb_period_queue, &rgb_period, 0);
-        while (a < 100.f/6) {
-            if (color[col_index] < 255)
-            {
-                color[col_index]++;
-                if (color[(col_index + 2) % 3] > base_val)
-                    color[(col_index + 2) % 3]--;
-            }
-            else
-                col_index = (col_index + 1) % 3;
+        if (xQueueReceive(rgb_period_queue, &rgb_period_tmp, 0) == pdTRUE)
+        {
+            if (rgb_period_tmp < 50) {
+                rgb_led_on = !rgb_led_on;
+                if (!rgb_led_on)
+                    rmt_write_to_led(0, 0, 0);
+                websocket_queue_send("led", String(rgb_led_on? "ON" : "OFF"));
 
-            a += rgb_period / rgb_levels;
+            } else {
+                rgb_period = rgb_period_tmp;
+                websocket_queue_send("period", String(rgb_period));
+            }
         }
-        delay_by = a;
-        a -= delay_by;
-        rmt_write_to_led(color[1], color[0], color[2]);
-        vTaskDelay(delay_by);
+        
+        if (rgb_led_on) {
+            while (a < 100.f/6) {
+                
+                if (color[col_index] < 255)
+                {
+                    color[col_index]++;
+                    if (color[(col_index + 2) % 3] > base_val)
+                        color[(col_index + 2) % 3]--;
+                }
+                else
+                    col_index = (col_index + 1) % 3;
+
+                a += rgb_period / rgb_levels;
+            }
+            delay_by = a;
+            a -= delay_by;
+            rmt_write_to_led(color[1], color[0], color[2]);
+        }
+        vTaskDelay(rgb_led_on? delay_by : 100);
     }
     vTaskDelete(NULL);
 }
@@ -477,7 +498,7 @@ void wifi_monitor_task(void* param)
         bool button = !!(GPIO.in & ((uint32_t)1 << 0));
         if (button && !prev_button)
         {
-            id_pass_idx = (id_pass_idx + 1) % id_passes_size;
+            id_pass_idx = (id_pass_idx + 1) % id_passes.size();
             xQueueSend(wifi_switch_target, &id_pass_idx, 0);
         }
         prev_button = button;
@@ -494,7 +515,7 @@ void wifi_monitor_task(void* param)
         if (xQueueReceive(wifi_switch_target, &id_pass_idx, 0) == pdTRUE)
         {
             WiFi.disconnect();
-            id_pass_idx = id_pass_idx % id_passes_size;
+            id_pass_idx = id_pass_idx % id_passes.size();
             Serial.printf("[WiFi monitor] Trying to connect to %s\n",
                           id_passes[id_pass_idx].ssid.c_str());
             WiFi.begin(id_passes[id_pass_idx].ssid.c_str(),
@@ -512,10 +533,28 @@ void print_line_to_tft(TFT_eSprite& tftsprite, String str, int line)
     tftsprite.pushSprite(0, line * 25);
 }
 
+/**
+ * @brief send json pair to queue
+ * 
+ * @param key 
+ * @param value 
+ * @return BaseType_t 
+ */
+BaseType_t websocket_queue_send(String key, String value) 
+{
+    json_pair_t* tmp_report_data = new json_pair_t(key, value);
+
+    BaseType_t ret = xQueueSend(websocket_report_queue, &tmp_report_data, 100);
+    if (ret != pdTRUE)
+        delete tmp_report_data;
+    
+    return ret;
+}
+
 void setup()
 {
 
-    Serial.begin(921600);
+    Serial.begin(115200);
     // Serial.setDebugOutput(true);
 
     temp_sensor_config_t tsens = TSENS_CONFIG_DEFAULT();
@@ -533,6 +572,7 @@ void setup()
     attachInterrupt(4, mhz19_callback, CHANGE);
 
     pinMode(0, INPUT_PULLUP);
+    pinMode(35, OUTPUT);
 
     // start DHT22 task
     xTaskCreate(rgb_task, "rgb_task", 4096, NULL, 1, NULL);
@@ -575,11 +615,7 @@ void loop()
         print_line_to_tft(txt_spr, WiFi.localIP().toString(), 2);
         print_line_to_tft(txt_spr, HOSTNAME, 3);
         
-        json_pair_t* tmp_report_data =
-            new json_pair_t("rssi", wifi_rssi);
-
-        if (xQueueSend(websocket_report_queue, &tmp_report_data, 100) != pdTRUE)
-            delete tmp_report_data;
+        websocket_queue_send("rssi", wifi_rssi);
     }
 
     // display CO2 ppm
@@ -593,10 +629,7 @@ void loop()
 
         print_line_to_tft(txt_spr, "CO2 : " + String(co2_ppm), 4);
 
-        json_pair_t* tmp_report_data =
-            new json_pair_t("co2_ppm", String(co2_ppm));
-        if (xQueueSend(websocket_report_queue, &tmp_report_data, 100) != pdTRUE)
-            delete tmp_report_data;
+        websocket_queue_send("co2_ppm", String(co2_ppm));
 
         // Serial.printf("CO2 ppm: %lf\n", co2_ppm);
     }
@@ -615,18 +648,9 @@ void loop()
         print_line_to_tft(txt_spr, "Hum : " + String(dht22_data.humid) + " %",
                           7);
 
-        json_pair_t* tmp_report_data =
-            new json_pair_t("temp", String(dht22_data.temp));
-        if (xQueueSend(websocket_report_queue, &tmp_report_data, 100) != pdTRUE)
-            delete tmp_report_data;
-
-        tmp_report_data = new json_pair_t("humid", String(dht22_data.humid));
-        if (xQueueSend(websocket_report_queue, &tmp_report_data, 100) != pdTRUE)
-            delete tmp_report_data;
-
-        tmp_report_data = new json_pair_t("cputemp", String(cpu_temp_c));
-        if (xQueueSend(websocket_report_queue, &tmp_report_data, 100) != pdTRUE)
-            delete tmp_report_data;
+        websocket_queue_send("temp", String(dht22_data.temp));
+        websocket_queue_send("humid", String(dht22_data.humid));
+        websocket_queue_send("cputemp", String(cpu_temp_c));
 
         // Serial.printf("Temp (C): %f, Humid (%%): %f\n", dht22_data.temp,
         // dht22_data.humid);

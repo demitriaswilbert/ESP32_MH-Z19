@@ -31,8 +31,20 @@
 #include <math.h>
 #include <time.h>
 
+class json_pair_t
+{
+public:
+    String key;
+    String value;
+    json_pair_t(String key, String value) : key(key), value(value) {}
+};
+
 extern QueueHandle_t websocket_report_queue;
+BaseType_t websocket_queue_send(String key, String value);
+
 void server_handle_task(void* param);
+
+
 
 extern QueueHandle_t wifi_switch_target;
 
@@ -45,13 +57,6 @@ typedef struct
 const char* wifi_status(wl_status_t status);
 void print_wifi_config(Stream& st);
 
-class json_pair_t
-{
-public:
-    String key;
-    String value;
-    json_pair_t(String key, String value) : key(key), value(value) {}
-};
 
 extern QueueHandle_t rgb_period_queue;
 extern float rgb_period;
@@ -60,6 +65,7 @@ extern uint8_t base_val;
 extern int rgb_levels;
 extern uint8_t color[];
 extern int col_index;
+extern bool rgb_led_on;
 
 void process_char(Stream& st, char c);
 void process_string(Stream& st, const char* buf);

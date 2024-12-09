@@ -84,16 +84,41 @@ const char index_html[] PROGMEM = R"rawliteral(
             background-color: #5bb9ba;
         }
 
-        .state {
+        .download-state {
             font-size: 1.5rem;
             color: #8c8c8c;
             font-weight: bold;
+            align-items: center;
+        }
+
+        .state {
+            font-size: 1rem;
+            color: #8c8c8c;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
         }
 
         .slider {
             width: 80%;
             height: 30px;
         }
+
+        .row-left {
+            flex: 0 25%; /* Set a fixed width for alignment */
+            text-align: left;
+            padding-left: 20%; /* Add some space after the text */
+        }
+
+        .row-center {
+            flex: 0 5%; /* Set a fixed width for alignment */
+        }
+
+        .row-right {
+            flex: 1;
+            text-align: left;
+        }
+
     </style>
     <title>ESP Web Server</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -114,7 +139,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <label for="file" class="button button-file" id="filename">Upload File</label>
                 </div>
                 <input type="submit" class="button button-submit" value="Update" disabled="" />
-                <div id="prg" class="state"></div>
+                <div id="prg" class="download-state"></div>
                 <br />
                 <div id="prgbar">
                     <div id="bar"></div>
@@ -123,26 +148,66 @@ const char index_html[] PROGMEM = R"rawliteral(
             </form>
         </div>
         <div class="card">
-            <h2>CPU Temperature</h2>
-            <p class="state"><span id="cputemp-state">%STATE%</span> &deg;C</p>
-            <h2>Temperature</h2>
-            <p class="state"><span id="temp-state">%STATE%</span> &deg;C</p>
-            <h2>Humidity</h2>
-            <p class="state"><span id="humid-state">%STATE%</span> %</p>
-        </div>
-        <div class="card">
-            <h2>CO2 ppm</h2>
-            <p class="state"><span id="co2_ppm-state">%STATE%</span>ppm</p>
+            <h2>Sensors</h2>
+            <p class="state">
+                <span class="row-left">CPU Temp</span>
+                <span class="row-center"> : </span>
+                <span class="row-right"><span id="cputemp-state">%STATE%</span> &deg;C</span>
+            </p>
+            <p class="state">
+                <span class="row-left">Air Temp</span>
+                <span class="row-center"> : </span>
+                <span class="row-right"><span id="temp-state">%STATE%</span> &deg;C</span>
+            </p>
+            <p class="state">
+                <span class="row-left">Humidity</span>
+                <span class="row-center"> : </span>
+                <span class="row-right"><span id="humid-state">%STATE%</span> %</span>
+            </p>
+            <p class="state">
+                <span class="row-left">CO2 Conc.</span>
+                <span class="row-center"> : </span>
+                <span class="row-right"><span id="co2_ppm-state">%STATE%</span> ppm</span>
+            </p>
         </div>
         <div class="card">
             <h2>LED period</h2>
-            <p class="state">Period: <span id="period-state">%STATE%</span></p>
+            <input type="button" class="button" id="led" value="%STATE%" onclick="ledbutton()">
+            <p class="state">
+                <span class="row-left">RGB Period</span>
+                <span class="row-center"> : </span>
+                <span class="row-right"><span id="period-state">%STATE%</span> ms</span>
+            </p>
             <p><input id="period" type="range" class="slider" min="100" max="10000" step="100" oninput="inputDelay(this)"
                     onchange="updateDelay(this)"></p>
         </div>
         <div class="card">
-            <h2>Connection</h2>
-            <p class="state"><span id="rssi-state">%STATE%</span></p>
+            <h2>Network Info</h2>
+            <p class="state state-row">
+                <span class="row-left">RSSI</span>
+                <span class="row-center"> : </span>
+                <span class="row-right" id="rssi-state">%STATE%</span>
+            </p>
+            <p class="state state-row">
+                <span class="row-left">SSID</span> 
+                <span class="row-center"> : </span>
+                <span class="row-right" id="ssid">%STATE%</span>
+            </p>
+            <p class="state state-row">
+                <span class="row-left">Gateway</span> 
+                <span class="row-center"> : </span>
+                <span class="row-right" id="gw">%STATE%</span>
+            </p>
+            <p class="state state-row">
+                <span class="row-left">Subnet Mask</span> 
+                <span class="row-center"> : </span>
+                <span class="row-right" id="sm">%STATE%</span>
+            </p>
+            <p class="state state-row">
+                <span class="row-left">Clients</span> 
+                <span class="row-center"> : </span>
+                <span class="row-right" id="clients">%STATE%</span>
+            </p>
         </div>
         
     </div>
@@ -228,15 +293,33 @@ const char index_html[] PROGMEM = R"rawliteral(
                 elemId('period').value = myObj["period"];
                 elemId('period-state').innerText = myObj["period"];
             }
+            if (myObj.hasOwnProperty("ssid")) 
+                elemId('ssid').innerText = myObj["ssid"];
 
+            if (myObj.hasOwnProperty("gw")) 
+                elemId('gw').innerText = myObj["gw"];
+
+            if (myObj.hasOwnProperty("sm")) 
+                elemId('sm').innerText = myObj["sm"];
+
+            if (myObj.hasOwnProperty("clients")) 
+                elemId('clients').innerText = myObj["clients"];
+
+            if (myObj.hasOwnProperty("led")) 
+                elemId('led').value = (myObj["led"] == "ON"? "Turn Led OFF" : "Turn Led ON");
+                
             if (myObj.hasOwnProperty("rssi"))
                 elemId('rssi-state').innerText = myObj["rssi"];
 
         }
+
+        function ledbutton(elem) {
+            websocket.send('\033KB toggle\033');
+        }
         function inputDelay(elem) {
-            ignores[elem.id] = true;
+            // ignores[elem.id] = true;
             let sliderValue = elem.value;
-            if (sliderValue >= 100 && sliderValue < 1000)
+            if (sliderValue >= 100 && sliderValue <= 1000)
                 elem.step = 10
             else if (sliderValue > 1000 && sliderValue < 10000)
                 elem.step = 100
@@ -246,7 +329,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             let sliderValue = elem.value;
             elemId('period-state').innerText = sliderValue;
             websocket.send('\033KB delay ' + sliderValue + '\033');
-            ignores[elem.id] = false;
+            // ignores[elem.id] = false;
         }
         function onLoad(event) {
             initWebSocket();
@@ -301,20 +384,36 @@ static void handleWebSocketMessage(void* arg, uint8_t* data, size_t len) {
 static void onEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
                     AwsEventType type, void* arg, uint8_t* data, size_t len) {
     switch (type) {
-        case WS_EVT_CONNECT:
+        case WS_EVT_CONNECT: 
+        {
+            size_t client_length = server->getClients().length();
             Serial.printf(
                 "WebSocket client #%u connected from %s. Total clients %lu\n",
                 client->id(), client->remoteIP().toString().c_str(),
-                server->getClients().length());
+                client_length);
+            websocket_queue_send("ssid", WiFi.SSID());
+            websocket_queue_send("gw", WiFi.gatewayIP().toString());
+            websocket_queue_send("sm", WiFi.subnetMask().toString());
+            websocket_queue_send("clients", String(client_length));
+            websocket_queue_send("period", String(rgb_period));
+            websocket_queue_send("led", String(rgb_led_on? "ON" : "OFF"));
             break;
+        }
+
         case WS_EVT_DISCONNECT:
+        {
+            size_t client_length = server->getClients().length();
             Serial.printf(
                 "WebSocket client #%u disconnected. Total clients %lu\n",
                 client->id(), server->getClients().length());
+            websocket_queue_send("clients", String(client_length));
             break;
+        }
+
         case WS_EVT_DATA:
             handleWebSocketMessage(arg, data, len);
             break;
+
         case WS_EVT_PONG:
         case WS_EVT_ERROR:
             break;
@@ -451,7 +550,6 @@ void server_handle_task(void* param) {
         
         if (new_report) {
             // Serial.println(JSON.stringify(json_report));
-            json_report["period"] = String(rgb_period);
             notifyClients(JSON.stringify(json_report));
         }
 
